@@ -42,58 +42,63 @@ weight_vector = torch.nn.Parameter(weight_vector)
 
 def generate_prediction_dataset(csv_path, data_root, weight_vector, device='cpu'):
     df = pd.read_csv(csv_path)
-    df = df[df["beat_type"] == "beat"]  # Filtrar solo beats válidos
-    df = df.dropna(subset=["audio_filename", "midi_filename"])  # Eliminar filas con valores nulos
+    df = df.dropna(subset=["audio_filename", "midi_filename"])  # Eliminate rows with null paths
 
     results = []
 
-    for idx, row in df.iterrows():
+    for filename, group in df.groupby("midi_filename"):
+        row = group.iloc[0]  # Only need metadata once per file
         audio_path = os.path.join(data_root, row["audio_filename"])
         bpm = row["bpm"]
 
         try:
-            # Cargar el audio
+            # Load audio
             x, fs = torchaudio.load(audio_path)
-            x = x[0]  # Tomar el canal mono
+            x = x[0].numpy()  # Convert to mono and numpy
 
-            # Calcular duración en samples de un compás de 16 steps
+            # Duration of one 16-step bar in seconds and samples
             segment_duration_sec = 16 * (60 / bpm / 4)
             segment_samples = int(segment_duration_sec * fs)
-            x = x[:segment_samples].numpy()
 
-            # Calcular mel espectrograma
-            mel = 10 * np.log10(librosa.feature.melspectrogram(y=x, sr=fs, fmax=8000) + 1e-6)
-            n_bins, n_frames = mel.shape
-            frame_size = n_frames // 16
-            mel_avg = mel[:, :frame_size * 16].reshape(n_bins, 16, frame_size).mean(axis=2)
+            total_samples = len(x)
+            num_bars = total_samples // segment_samples
 
-            mel_tensor = torch.tensor(mel_avg, dtype=torch.float32).to(device)
-            weight_vector = weight_vector.to(device)
+            for seq in range(num_bars):
+                start = seq * segment_samples
+                end = start + segment_samples
+                x_bar = x[start:end]
 
-            # Aplicar modelo
-            y_hat = torch.matmul(weight_vector, mel_tensor)  # [1, 16]
-            y_hat = (y_hat / y_hat.max()).detach().cpu().numpy().flatten()
+                # Compute mel spectrogram
+                mel = 10 * np.log10(librosa.feature.melspectrogram(y=x_bar, sr=fs, fmax=8000) + 1e-6)
+                n_bins, n_frames = mel.shape
+                frame_size = n_frames // 16
+                mel_avg = mel[:, :frame_size * 16].reshape(n_bins, 16, frame_size).mean(axis=2)
 
-            # Guardar fila de salida
-            output_row = {
-                "sequence": idx,
-                "drummer": row["drummer"],
-                "session": row["session"],
-                "id": row["id"],
-                "style": row["style"],
-                "midi_filename": row["midi_filename"],
-                "audio_filename": row["audio_filename"],
-                "bpm": row["bpm"],
-                "split": row["split"]
-            }
+                # Prediction
+                mel_tensor = torch.tensor(mel_avg, dtype=torch.float32).to(device)
+                y_hat = torch.matmul(weight_vector.to(device), mel_tensor)
+                y_hat = (y_hat / y_hat.max()).detach().cpu().numpy().flatten()
 
-            for i in range(16):
-                output_row[f"y_{i}"] = y_hat[i]
+                # Store result row
+                output_row = {
+                    "sequence": seq,
+                    "drummer": row["drummer"],
+                    "session": row["session"],
+                    "id": row["id"],
+                    "style": row["style"],
+                    "midi_filename": row["midi_filename"],
+                    "audio_filename": row["audio_filename"],
+                    "bpm": row["bpm"],
+                    "split": row["split"]
+                }
 
-            results.append(output_row)
+                for i in range(16):
+                    output_row[f"y_{i}"] = y_hat[i]
+
+                results.append(output_row)
 
         except Exception as e:
-            print(f"Error processing {audio_path}: {e}")
+            print(f"❌ Error processing {audio_path}: {e}")
             continue
 
     return pd.DataFrame(results)
