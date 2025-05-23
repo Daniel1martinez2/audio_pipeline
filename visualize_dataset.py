@@ -7,7 +7,7 @@ plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "p
 os.makedirs(plot_dir, exist_ok=True)
 
 # Load the NPZ file
-data_path = "/Users/danielmartinezvillegas/Developer/master-ds/✨TDG/audio_pipeline/output/mel_fwod_dataset.npz"
+data_path = "/Users/danielmartinezvillegas/Developer/master-ds/✨TDG/audio_pipeline/output/mel_fwod_dataset_variable.npz"
 data = np.load(data_path, allow_pickle=True)
 
 # Print the keys in the file
