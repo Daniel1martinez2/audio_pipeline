@@ -1,3 +1,4 @@
-data/groove
-data/groove-alignedoutput/*.npz
+/data/groove
+/data/groove-aligned
+/data/groove-alignedoutput/*.npz
 *.pkl
